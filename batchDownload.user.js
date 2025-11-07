@@ -44,6 +44,9 @@
         collectedVideos: new Map(), // key: data-index, value: {url, blob}
     };
 
+    // 暴露到全局，方便控制台调试和紧急救援
+    window.flowDownloadState = state;
+
     // 创建悬浮控制面板
     function createControlPanel() {
         const panel = document.createElement('div');
@@ -120,6 +123,20 @@
                     transition: all 0.3s;
                 " disabled>开始下载</button>
 
+                <button id="emergency-save-btn" style="
+                    width: 100%;
+                    padding: 8px;
+                    background: rgba(255, 152, 0, 0.7);
+                    border: none;
+                    border-radius: 6px;
+                    color: white;
+                    cursor: pointer;
+                    font-size: 12px;
+                    margin-bottom: 8px;
+                    transition: all 0.3s;
+                    display: none;
+                ">🆘 紧急保存视频</button>
+
                 <button id="reset-btn" style="
                     width: 100%;
                     padding: 8px;
@@ -163,6 +180,7 @@
         // 绑定事件
         document.getElementById('select-mode-btn').addEventListener('click', toggleSelectMode);
         document.getElementById('start-download-btn').addEventListener('click', startDownloadProcess);
+        document.getElementById('emergency-save-btn').addEventListener('click', emergencySaveVideos);
         document.getElementById('reset-btn').addEventListener('click', resetState);
 
         // 绑定输入框事件
@@ -351,10 +369,26 @@
             // 2. 下载所有视频
             await downloadAllVideos();
 
-            // 3. 打包成ZIP
-            await createZipAndDownload();
+            // 显示紧急保存按钮（视频已在内存中）
+            document.getElementById('emergency-save-btn').style.display = 'block';
 
-            updateProgress('下载完成!', 100);
+            // 3. 打包成ZIP
+            try {
+                await createZipAndDownload();
+                updateProgress('下载完成!', 100);
+            } catch (zipError) {
+                console.error('ZIP打包失败:', zipError);
+                console.log('⚠️ ZIP打包失败，尝试逐个下载视频文件...');
+
+                // 备用方案：逐个下载视频文件
+                if (confirm('ZIP打包失败（可能是文件过大）。\n是否改为逐个下载视频文件？')) {
+                    await downloadVideosIndividually();
+                    updateProgress('下载完成!', 100);
+                } else {
+                    throw zipError;
+                }
+            }
+
             setTimeout(() => {
                 document.getElementById('progress-info').style.display = 'none';
             }, 3000);
@@ -570,91 +604,68 @@
         return null;
     }
 
-    // 下载所有视频 - 并发池模式
+    // 下载所有视频 - 批次下载模式（每批5个，批次间有间隔）
     async function downloadAllVideos() {
         const videos = Array.from(state.collectedVideos.entries()).sort((a, b) => a[0] - b[0]);
         const total = videos.length;
-
-        // 并发数配置: 可以根据需要调整
-        const concurrency = 5;
+        const batchSize = 5; // 每批5个
         let completed = 0;
-        let currentIndex = 0;
-
-        console.log(`📥 开始并发下载 ${total} 个视频, 并发数: ${concurrency}`);
-
-        // 下载单个视频的包装函数
-        const downloadOne = async () => {
-            if (currentIndex >= videos.length) {
-                return null;
-            }
-
-            const [index, data] = videos[currentIndex];
-            currentIndex++;
-
-            try {
-                console.log(`⬇️ 开始下载视频 ${index}...`);
-                const blob = await downloadVideoAsBlob(data.url);
-                state.collectedVideos.get(index).blob = blob;
-                completed++;
-
-                const progress = 30 + (completed / total) * 60;
-                updateProgress(`下载中: ${completed}/${total}`, progress);
-
-                console.log(`✅ 视频 ${index} 下载完成, 大小: ${(blob.size / 1024 / 1024).toFixed(2)}MB`);
-                return { index, success: true };
-            } catch (error) {
-                console.error(`❌ 视频 ${index} 下载失败:`, error.message);
-                completed++;
-                const progress = 30 + (completed / total) * 60;
-                updateProgress(`下载中: ${completed}/${total} (部分失败)`, progress);
-                return { index, success: false, error: error.message };
-            }
-        };
-
-        // 创建工作池: 当一个完成时立即开始下一个
-        const pool = [];
         const results = [];
 
-        // 启动初始并发任务
-        for (let i = 0; i < Math.min(concurrency, videos.length); i++) {
-            const promise = downloadOne().then(result => {
-                if (result) results.push(result);
-                return result;
-            });
-            pool.push(promise);
-        }
+        console.log(`📥 开始批次下载 ${total} 个视频, 每批 ${batchSize} 个`);
 
-        // 持续补充任务直到全部完成
-        while (currentIndex < videos.length || pool.length > 0) {
-            if (pool.length === 0) break;
+        // 分批下载
+        for (let i = 0; i < videos.length; i += batchSize) {
+            const batch = videos.slice(i, i + batchSize);
+            const batchNum = Math.floor(i / batchSize) + 1;
+            const totalBatches = Math.ceil(videos.length / batchSize);
 
-            // 等待任意一个完成
-            await Promise.race(pool.map((p, idx) => p.then(() => idx)));
+            console.log(`\n📦 开始第 ${batchNum}/${totalBatches} 批下载 (${batch.length} 个视频)`);
 
-            // 移除已完成的 Promise
-            const settled = await Promise.allSettled(pool);
-            for (let i = pool.length - 1; i >= 0; i--) {
-                if (settled[i].status === 'fulfilled') {
-                    pool.splice(i, 1);
+            // 并发下载这一批
+            const promises = batch.map(async ([index, data]) => {
+                try {
+                    console.log(`⬇️ 开始下载视频 ${index}...`);
+                    const blob = await downloadVideoAsBlob(data.url);
+                    state.collectedVideos.get(index).blob = blob;
+                    completed++;
+
+                    const progress = 30 + (completed / total) * 60;
+                    updateProgress(`下载中: ${completed}/${total} (第${batchNum}批)`, progress);
+
+                    console.log(`✅ 视频 ${index} 下载完成, 大小: ${(blob.size / 1024 / 1024).toFixed(2)}MB`);
+                    return { index, success: true };
+                } catch (error) {
+                    console.error(`❌ 视频 ${index} 下载失败:`, error.message);
+                    completed++;
+                    const progress = 30 + (completed / total) * 60;
+                    updateProgress(`下载中: ${completed}/${total} (第${batchNum}批, 部分失败)`, progress);
+                    return { index, success: false, error: error.message };
                 }
+            });
+
+            // 等待这一批全部完成
+            const batchResults = await Promise.all(promises);
+            results.push(...batchResults);
+
+            const batchFailed = batchResults.filter(r => !r.success);
+            if (batchFailed.length > 0) {
+                console.warn(`⚠️ 第${batchNum}批有 ${batchFailed.length} 个失败`);
             }
 
-            // 如果还有待下载的,补充新任务
-            while (pool.length < concurrency && currentIndex < videos.length) {
-                const promise = downloadOne().then(result => {
-                    if (result) results.push(result);
-                    return result;
-                });
-                pool.push(promise);
+            // 批次间延迟，避免网络压力过大
+            if (i + batchSize < videos.length) {
+                console.log(`⏸️ 批次间休息 1 秒...`);
+                await sleep(1000);
             }
         }
 
-        const failed = results.filter(r => r && !r.success);
+        const failed = results.filter(r => !r.success);
         if (failed.length > 0) {
-            console.warn(`⚠️ 有 ${failed.length} 个视频下载失败:`, failed.map(f => f.index).join(', '));
+            console.warn(`⚠️ 总共有 ${failed.length} 个视频下载失败:`, failed.map(f => f.index).join(', '));
         }
 
-        console.log(`📊 下载完成统计: 总共 ${total} 个, 成功 ${completed} 个`);
+        console.log(`📊 下载完成统计: 总共 ${total} 个, 成功 ${total - failed.length} 个`);
     }
 
     // 下载单个视频为Blob
@@ -666,49 +677,173 @@
         return await response.blob();
     }
 
-    // 创建ZIP并下载
+    // 创建ZIP并下载 - 优化内存使用
     async function createZipAndDownload() {
+        const videos = Array.from(state.collectedVideos.entries()).sort((a, b) => a[0] - b[0]);
+        const validVideos = videos.filter(([_, data]) => data.blob);
+
+        console.log(`📦 准备打包 ${validVideos.length} 个视频`);
+
+        // 计算总大小
+        const totalSize = validVideos.reduce((sum, [_, data]) => sum + data.blob.size, 0);
+        const totalSizeMB = (totalSize / 1024 / 1024).toFixed(2);
+        console.log(`📊 总大小: ${totalSizeMB}MB`);
+
+        // 如果总大小超过500MB，分批打包（更保守，避免内存溢出）
+        const maxSizePerZip = 500 * 1024 * 1024; // 500MB
+        if (totalSize > maxSizePerZip) {
+            console.log('⚠️ 文件过大，将分批打包');
+            await createMultipleZips(validVideos, maxSizePerZip);
+        } else {
+            await createSingleZip(validVideos);
+        }
+    }
+
+    // 创建单个ZIP文件
+    async function createSingleZip(videos) {
         updateProgress('正在打包ZIP...', 95);
 
         const zip = new JSZip();
         const folder = zip.folder('flow_videos');
 
-        // 按索引排序添加到ZIP
-        const videos = Array.from(state.collectedVideos.entries()).sort((a, b) => a[0] - b[0]);
-
         for (const [index, data] of videos) {
-            if (data.blob) {
-                // 根据blob类型确定扩展名
-                const ext = data.blob.type.includes('webm') ? 'webm' : 'mp4';
-                folder.file(`video_${index}.${ext}`, data.blob);
-            }
+            const ext = data.blob.type.includes('webm') ? 'webm' : 'mp4';
+            // 使用 STORE 模式（不压缩），视频文件本身已压缩
+            folder.file(`video_${index}.${ext}`, data.blob, {
+                compression: 'STORE'
+            });
         }
 
-        // 生成ZIP
+        // 生成ZIP - 不压缩，节省内存和时间
         const zipBlob = await zip.generateAsync({
             type: 'blob',
-            compression: 'DEFLATE',
-            compressionOptions: { level: 5 }
+            compression: 'STORE',
+            streamFiles: true
         }, (metadata) => {
             const percent = 95 + (metadata.percent / 100) * 5;
             updateProgress(`打包中: ${metadata.percent.toFixed(0)}%`, percent);
         });
 
-        // 生成文件名: flow + 今天日期
+        // 生成文件名
         const today = new Date();
         const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
         const fileName = `flow${dateStr}.zip`;
 
-        // 触发下载
-        const link = document.createElement('a');
-        link.href = URL.createObjectURL(zipBlob);
-        link.download = fileName;
-        link.click();
-
-        // 清理
-        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
-
+        downloadBlob(zipBlob, fileName);
         console.log(`✅ ZIP下载已触发: ${fileName}`);
+    }
+
+    // 分批创建多个ZIP文件
+    async function createMultipleZips(videos, maxSizePerZip) {
+        const batches = [];
+        let currentBatch = [];
+        let currentSize = 0;
+
+        for (const [index, data] of videos) {
+            if (currentSize + data.blob.size > maxSizePerZip && currentBatch.length > 0) {
+                batches.push(currentBatch);
+                currentBatch = [];
+                currentSize = 0;
+            }
+            currentBatch.push([index, data]);
+            currentSize += data.blob.size;
+        }
+        if (currentBatch.length > 0) {
+            batches.push(currentBatch);
+        }
+
+        console.log(`📦 将创建 ${batches.length} 个ZIP文件`);
+
+        const today = new Date();
+        const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+
+        for (let i = 0; i < batches.length; i++) {
+            const batch = batches[i];
+            updateProgress(`正在打包第 ${i + 1}/${batches.length} 个ZIP...`, 95 + (i / batches.length) * 5);
+
+            const zip = new JSZip();
+            const folder = zip.folder('flow_videos');
+
+            for (const [index, data] of batch) {
+                const ext = data.blob.type.includes('webm') ? 'webm' : 'mp4';
+                folder.file(`video_${index}.${ext}`, data.blob, {
+                    compression: 'STORE'
+                });
+            }
+
+            const zipBlob = await zip.generateAsync({
+                type: 'blob',
+                compression: 'STORE',
+                streamFiles: true
+            });
+
+            const fileName = batches.length > 1
+                ? `flow${dateStr}_part${i + 1}.zip`
+                : `flow${dateStr}.zip`;
+
+            downloadBlob(zipBlob, fileName);
+            console.log(`✅ ZIP ${i + 1}/${batches.length} 下载已触发: ${fileName}`);
+
+            // 等待一下，避免浏览器同时处理太多下载
+            await sleep(500);
+        }
+    }
+
+    // 下载Blob文件
+    function downloadBlob(blob, filename) {
+        const link = document.createElement('a');
+        link.href = URL.createObjectURL(blob);
+        link.download = filename;
+        link.click();
+        setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    }
+
+    // 备用方案：逐个下载视频文件（不打包ZIP）
+    async function downloadVideosIndividually() {
+        const videos = Array.from(state.collectedVideos.entries()).sort((a, b) => a[0] - b[0]);
+        const validVideos = videos.filter(([_, data]) => data.blob);
+
+        console.log(`📥 开始逐个下载 ${validVideos.length} 个视频文件`);
+        updateProgress('正在逐个下载视频...', 95);
+
+        // 生成日期前缀
+        const today = new Date();
+        const dateStr = `${today.getFullYear()}${String(today.getMonth() + 1).padStart(2, '0')}${String(today.getDate()).padStart(2, '0')}`;
+
+        for (let i = 0; i < validVideos.length; i++) {
+            const [index, data] = validVideos[i];
+            const ext = data.blob.type.includes('webm') ? 'webm' : 'mp4';
+            const filename = `flow_${dateStr}_video_${index}.${ext}`;
+
+            downloadBlob(data.blob, filename);
+            console.log(`✅ 下载 ${i + 1}/${validVideos.length}: ${filename}`);
+
+            const progress = 95 + ((i + 1) / validVideos.length) * 5;
+            updateProgress(`下载中: ${i + 1}/${validVideos.length}`, progress);
+
+            // 每个下载间隔一点时间，避免浏览器阻塞
+            await sleep(100);
+        }
+
+        console.log('✅ 所有视频文件已下载完成');
+    }
+
+    // 紧急保存：手动触发逐个下载
+    async function emergencySaveVideos() {
+        const validVideos = Array.from(state.collectedVideos.entries()).filter(([_, data]) => data.blob);
+
+        if (validVideos.length === 0) {
+            alert('内存中没有视频数据！');
+            return;
+        }
+
+        if (!confirm(`检测到内存中有 ${validVideos.length} 个视频。\n确认逐个下载吗？`)) {
+            return;
+        }
+
+        console.log('🆘 紧急保存模式启动');
+        await downloadVideosIndividually();
+        alert(`✅ 已保存 ${validVideos.length} 个视频到下载文件夹`);
     }
 
     // 更新进度显示

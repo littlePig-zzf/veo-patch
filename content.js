@@ -82,6 +82,16 @@ function initialize() {
     }
   });
 
+  // 监听点击生成按钮的事件
+  document.addEventListener("clickGenerateButton", async function () {
+    try {
+      await clickGenerateButton();
+      console.log("响应clickGenerateButton事件，已点击生成按钮");
+    } catch (error) {
+      console.error("点击生成按钮失败:", error);
+    }
+  });
+
   document.addEventListener("ensureFrameMode", async function (event) {
     const force = Boolean(event?.detail?.force);
     try {

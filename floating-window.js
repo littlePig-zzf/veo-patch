@@ -1214,6 +1214,13 @@ class FloatingWindow {
         // 等待一段时间确保生成任务稳定开始，然后处理下一个任务
         console.log(`等待${waitTime}秒后处理下一个任务...`);
         await new Promise((resolve) => setTimeout(resolve, waitTime * 1000));
+
+        // 从第6个任务开始(i>=5),每次提交后都要检查进程队列
+        if (i >= 5) {
+          console.log(`已提交第${i + 1}个任务，检查进程队列...`);
+          this.showStatus(`已提交第${i + 1}个任务，等待进程队列释放...`, "info");
+          await this.waitForProcessSlot(prompt);
+        }
       }
 
       // 等待所有任务真正完成
@@ -1252,6 +1259,71 @@ class FloatingWindow {
       // 隐藏步骤显示
       this.hideSteps();
     }
+  }
+
+  async waitForProcessSlot(currentPrompt) {
+    const maxRetries = 60; // 最多重试60次(5分钟)
+    let retryCount = 0;
+
+    while (retryCount < maxRetries) {
+      if (this.shouldStop) {
+        console.log("检测到停止信号，停止等待进程槽");
+        return;
+      }
+
+      // 查找data-index为1的盒子
+      const itemBox = document.querySelector('[data-index="1"]');
+      if (!itemBox) {
+        console.log("未找到data-index为1的盒子，跳过检查");
+        return;
+      }
+
+      // 查找盒子里的button
+      const button = itemBox.querySelector('button');
+      if (!button) {
+        console.log("data-index为1的盒子里未找到button，跳过检查");
+        return;
+      }
+
+      const buttonText = button.textContent.trim();
+      console.log(`检查进程槽: button内容="${buttonText}", 当前提示词="${currentPrompt}"`);
+
+      // 检查button内容是否与提示词相同
+      if (buttonText === currentPrompt) {
+        console.log("进程槽已释放，继续提交");
+        return;
+      }
+
+      console.log(`进程槽未释放 (第${retryCount + 1}次检查)，等待5秒后重新提交...`);
+      this.showStatus(`进程队列已满，等待释放... (${retryCount + 1}/${maxRetries})`, "info");
+
+      // 等待5秒
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+
+      // 重新点击提交按钮
+      try {
+        await this.clickGenerateButtonFromWindow();
+        console.log("已重新点击提交按钮");
+      } catch (error) {
+        console.warn("重新点击提交按钮失败:", error);
+      }
+
+      retryCount++;
+    }
+
+    console.warn("等待进程槽超时，继续下一个任务");
+    this.showStatus("等待进程队列超时，继续下一个任务", "info");
+  }
+
+  async clickGenerateButtonFromWindow() {
+    // 通过自定义事件触发content script点击生成按钮
+    return new Promise((resolve, reject) => {
+      const event = new CustomEvent("clickGenerateButton");
+      document.dispatchEvent(event);
+
+      // 简单延迟后resolve
+      setTimeout(() => resolve(), 1000);
+    });
   }
 
   async processImage(file, prompt, index, total, waitTime, imageData) {
