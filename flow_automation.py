@@ -81,13 +81,17 @@ class FlowAutomation:
         print("正在查找 New project 按钮...")
 
         try:
-            # 尝试多种选择器查找 New project 按钮
+            # 尝试多种选择器查找 New project 按钮（支持英文和中文）
             selectors = [
                 "//button[contains(text(), 'New project')]",
                 "//button[contains(text(), 'new project')]",
+                "//button[contains(text(), '新建项目')]",
                 "//button[contains(., 'New project')]",
+                "//button[contains(., '新建项目')]",
                 "//*[@role='button'][contains(text(), 'New project')]",
+                "//*[@role='button'][contains(text(), '新建项目')]",
                 "//span[contains(text(), 'New project')]/ancestor::button",
+                "//span[contains(text(), '新建项目')]/ancestor::button",
             ]
 
             new_project_btn = None
