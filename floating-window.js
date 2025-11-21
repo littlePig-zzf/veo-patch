@@ -56,6 +56,12 @@ class FloatingWindow {
                     <div class="speed-hint">建议设置3-15秒，避免操作过快导致网站提示</div>
                     <div id="orientation-indicator" class="orientation-indicator">当前裁剪方向：尚未检测</div>
                 </div>
+
+                <div class="form-group">
+                    <label>队列等待重试次数:</label>
+                    <input type="number" id="floating-max-retries" value="30" min="5" max="120" class="wait-input">
+                    <div class="speed-hint">队列繁忙时的最大重试次数，每次间隔5秒 (建议20-60次)</div>
+                </div>
                 
                 <div class="form-group prompt-group">
                     <div class="prompt-header">
@@ -885,6 +891,10 @@ class FloatingWindow {
       this.saveSettings();
     });
 
+    this.window.querySelector("#floating-max-retries").addEventListener("change", () => {
+      this.saveSettings();
+    });
+
     // 监听步骤更新事件
     document.addEventListener("updateStep", (e) => {
       if (this.isProcessing) {
@@ -1262,7 +1272,8 @@ class FloatingWindow {
   }
 
   async waitForProcessSlot(currentPrompt) {
-    const maxRetries = 60; // 最多重试60次(5分钟)
+    const maxRetriesInput = this.window.querySelector("#floating-max-retries");
+    const maxRetries = maxRetriesInput ? parseInt(maxRetriesInput.value) || 30 : 30;
     let retryCount = 0;
 
     while (retryCount < maxRetries) {
@@ -2155,6 +2166,7 @@ class FloatingWindow {
   saveSettings() {
     const settings = {
       waitTime: this.window.querySelector("#floating-wait-time").value,
+      maxRetries: this.window.querySelector("#floating-max-retries").value,
       promptEntries: this.promptEntries.map((entry) => ({
         raw: entry.raw,
         json: entry.json,
@@ -2176,6 +2188,8 @@ class FloatingWindow {
       const settings = JSON.parse(saved);
       this.window.querySelector("#floating-wait-time").value =
         settings.waitTime || "3";
+      this.window.querySelector("#floating-max-retries").value =
+        settings.maxRetries || "30";
 
       if (Array.isArray(settings.promptEntries)) {
         this.setPromptEntries(settings.promptEntries);
