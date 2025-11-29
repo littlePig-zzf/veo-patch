@@ -176,6 +176,13 @@ def main():
         help='分批处理提示词，每批提交的数量（例如 120），0 表示不分批'
     )
 
+    parser.add_argument(
+        '--queue-retries',
+        type=int,
+        default=25,
+        help='队列繁忙时的最大重试次数，默认 25 次（每次间隔 5 秒）'
+    )
+
     args = parser.parse_args()
 
     prompts = []
@@ -269,7 +276,8 @@ def main():
             download_dir=args.download_dir,
             download_workers=args.download_workers,
             flow_url=args.flow_url,
-            collect_chunk_size=args.download_chunk_size
+            collect_chunk_size=args.download_chunk_size,
+            queue_retries=args.queue_retries
         )
 
         if args.download_only:

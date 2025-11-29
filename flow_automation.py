@@ -34,6 +34,7 @@ class FlowAutomation:
         download_workers=5,
         flow_url=None,
         collect_chunk_size=80,
+        queue_retries=60,
     ):
         """
         初始化自动化操作
@@ -45,6 +46,7 @@ class FlowAutomation:
             download_workers: 并行下载线程数
             flow_url: Flow 项目页面地址（可自定义）
             collect_chunk_size: 每次滚动采集的最大 data-index 数量
+            queue_retries: 队列繁忙时的最大重试次数
         """
         self.driver = driver
         self.wait_time = wait_time
@@ -63,6 +65,11 @@ class FlowAutomation:
         except (TypeError, ValueError):
             workers = 5
         self.download_workers = max(1, workers)
+        try:
+            retries = int(queue_retries)
+        except (TypeError, ValueError):
+            retries = 25
+        self.queue_retries = max(10, retries)
         try:
             self.driver.set_script_timeout(180)
         except Exception:
@@ -886,9 +893,10 @@ class FlowAutomation:
         print(f"✗ 等待超时（{timeout}秒），未检测到视频生成完成")
         return False
 
-    def _wait_for_process_slot(self, current_prompt, max_retries=60, interval=5):
+    def _wait_for_process_slot(self, current_prompt, interval=5):
         """模仿插件逻辑：6 个以上任务时轮询 data-index=1 的内容"""
-        print("  → 进程队列达到上限，开始检测 data-index=1 以等待空位...")
+        max_retries = self.queue_retries
+        print(f"  → 进程队列达到上限，开始检测 data-index=1 以等待空位（最多重试 {max_retries} 次）...")
 
         for attempt in range(1, max_retries + 1):
             button_text = self._read_first_slot_button_text()

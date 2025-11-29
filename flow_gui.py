@@ -121,6 +121,14 @@ class FlowGUI:
             row=3, column=1, sticky=(tk.W, tk.E), pady=5, padx=(5, 0)
         )
 
+        # 队列等待重试次数
+        ttk.Label(exec_frame, text="队列重试次数:", width=12, anchor=tk.W).grid(row=4, column=0, sticky=tk.W, pady=5)
+        self.queue_retries = tk.IntVar(value=25)
+        ttk.Spinbox(exec_frame, from_=10, to=200, textvariable=self.queue_retries, width=15).grid(
+            row=4, column=1, sticky=(tk.W, tk.E), pady=5, padx=(5, 0)
+        )
+        ttk.Label(exec_frame, text="(繁忙时重试)", font=('', 9)).grid(row=5, column=0, columnspan=2, sticky=tk.W)
+
         # ===== 第二列：下载配置 =====
         download_frame = ttk.LabelFrame(config_container, text="下载配置", padding=10)
         download_frame.grid(row=0, column=1, sticky=(tk.W, tk.E, tk.N), padx=5)
@@ -254,6 +262,7 @@ class FlowGUI:
         cmd.extend(["--wait-time", str(self.wait_time.get())])
         cmd.extend(["--download-workers", str(self.download_workers.get())])
         cmd.extend(["--download-chunk-size", str(self.download_chunk_size.get())])
+        cmd.extend(["--queue-retries", str(self.queue_retries.get())])
 
         # 可选参数
         if self.download_range.get():
@@ -403,6 +412,7 @@ class FlowGUI:
             "download_workers": self.download_workers.get(),
             "download_range": self.download_range.get(),
             "download_chunk_size": self.download_chunk_size.get(),
+            "queue_retries": self.queue_retries.get(),
             "flow_url": self.flow_url.get(),
             "show_browser": self.show_browser.get(),
             "download_only": self.download_only.get(),
@@ -434,6 +444,7 @@ class FlowGUI:
             self.download_workers.set(config.get("download_workers", 8))
             self.download_range.set(config.get("download_range", ""))
             self.download_chunk_size.set(config.get("download_chunk_size", 80))
+            self.queue_retries.set(config.get("queue_retries", 25))
             self.flow_url.set(config.get("flow_url", ""))
             self.show_browser.set(config.get("show_browser", False))
             self.download_only.set(config.get("download_only", False))

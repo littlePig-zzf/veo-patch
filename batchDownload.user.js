@@ -5,6 +5,7 @@
 // @description  批量下载Flow项目中的视频,支持选择范围并打包成ZIP
 // @author       You
 // @match        https://labs.google/fx/tools/flow/project/*
+// @match        https://labs.google/fx/zh/tools/flow/project/*
 // @grant        none
 // @require      https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js
 // ==/UserScript==
@@ -860,7 +861,8 @@
     // 初始化
     async function init() {
         // 确保在Flow项目页面
-        if (!window.location.href.includes('labs.google/fx/tools/flow/project/')) {
+        const inFlowProjectPage = /^https:\/\/labs\.google\/fx\/(zh\/)?tools\/flow\/project\//.test(window.location.href);
+        if (!inFlowProjectPage) {
             console.log('不在Flow项目页面,脚本不会启动');
             return;
         }

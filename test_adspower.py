@@ -6,8 +6,8 @@ import requests
 
 def test_adspower_connection():
     """测试 AdsPower API 连接"""
-    api_url = "http://local.adspower.net:50325"
-    profile_id = "kpcl6vt"
+    api_url = "http://127.0.0.1:50325"
+    profile_id = "k174lkjk"
 
     print(f"测试 AdsPower 连接...")
     print(f"API 地址: {api_url}")
