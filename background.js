@@ -11,6 +11,7 @@ chrome.action.onClicked.addListener(async (tab) => {
   const currentUrl = tab?.url || "";
   const isFlowPage =
     currentUrl.includes("labs.google/fx/zh/tools/flow") ||
+    currentUrl.includes("labs.google/fx/de/tools/flow") ||
     currentUrl.includes("labs.google/fx/tools/flow");
 
   if (isFlowPage) {

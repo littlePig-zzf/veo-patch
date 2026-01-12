@@ -167,19 +167,19 @@ async function ensureFrameToVideoMode(timeout = 6000) {
     return;
   }
 
-  const readCurrentLabel = () =>
-    normalizeText(
-      combobox.textContent || combobox.getAttribute("aria-label") || ""
-    );
+  const frameKeywords = ["帧转视频", "Frames to Video", "Video made from frames"].map(normalizeText);
 
-  const frameKeywords = ["帧转视频", "Frames to Video"].map(normalizeText);
-
-  if (frameKeywords.some((keyword) => readCurrentLabel().includes(keyword))) {
-    console.log("当前已处于“帧转视频”模式");
-    return;
+  // 通过 checked option 判断当前模式
+  const checkedOption = document.querySelector('[role="option"][data-state="checked"]');
+  if (checkedOption) {
+    const checkedLabel = normalizeText(checkedOption.textContent || "");
+    if (frameKeywords.some((keyword) => checkedLabel.includes(keyword))) {
+      console.log("当前已处于\"帧转视频\"模式");
+      return;
+    }
   }
 
-  console.log("检测到模式未设置为“帧转视频”，尝试切换...");
+  console.log("检测到模式未设置为\"帧转视频\"，尝试切换...");
 
   await humanDelay();
   try {
@@ -211,10 +211,12 @@ async function ensureFrameToVideoMode(timeout = 6000) {
     return;
   }
 
+  // 查找 "Frames to Video" 选项（优先查找未选中的选项）
   const option =
     Array.from(listbox.querySelectorAll('[role="option"]')).find((item) => {
       const label = normalizeText(item.textContent || "");
-      return frameKeywords.some((keyword) => label.includes(keyword));
+      const isFrameMode = frameKeywords.some((keyword) => label.includes(keyword));
+      return isFrameMode;
     }) ||
     Array.from(listbox.querySelectorAll("*")).find((item) => {
       const label = normalizeText(item.textContent || "");
@@ -247,16 +249,17 @@ async function ensureFrameToVideoMode(timeout = 6000) {
     }
   }
 
+  // 等待切换完成，通过检查 checked option 验证
   const start = Date.now();
   while (Date.now() - start < 4000) {
     await delay(150);
-    if (frameKeywords.some((keyword) => readCurrentLabel().includes(keyword))) {
-      console.log("模式已成功切换到“帧转视频”");
+    if (isFrameModeActive()) {
+      console.log("模式已成功切换到\"帧转视频\"");
       return;
     }
   }
 
-  console.warn("模式切换未在预期时间内生效，请手动确认是否已选择“帧转视频”");
+  console.warn("模式切换未在预期时间内生效，请手动确认是否已选择\"帧转视频\"");
 }
 
 function isFrameModeActive() {
@@ -264,7 +267,7 @@ function isFrameModeActive() {
     document.querySelectorAll('[role="combobox"]')
   ).filter(isVisibleElement);
 
-  const frameKeywords = ["帧转视频", "Frames to Video"].map(normalizeText);
+  const frameKeywords = ["帧转视频", "Frames to Video", "Video made from frames"].map(normalizeText);
 
   return comboboxes.some((combobox) => {
     const label = normalizeText(
@@ -275,14 +278,13 @@ function isFrameModeActive() {
 }
 
 function detectCurrentOrientationLabel() {
-  const comboboxes = Array.from(
-    document.querySelectorAll('[role="combobox"]')
+  // 查找所有 checked 状态的 option
+  const checkedOptions = Array.from(
+    document.querySelectorAll('[role="option"][data-state="checked"]')
   ).filter(isVisibleElement);
 
-  for (const combobox of comboboxes) {
-    const label = normalizeText(
-      combobox.textContent || combobox.getAttribute("aria-label") || ""
-    );
+  for (const option of checkedOptions) {
+    const label = normalizeText(option.textContent || "");
     if (!label) {
       continue;
     }
@@ -365,9 +367,12 @@ async function processImageWithPrompt(
   const currentUrl = window.location.href;
   const isFlowPage =
     currentUrl.includes("labs.google/fx/zh/tools/flow") ||
+    currentUrl.includes("labs.google/fx/de/tools/flow") ||
     currentUrl.includes("labs.google/fx/tools/flow");
   if (!isFlowPage) {
-    throw new Error("当前页面不是 Flow 帧转视频页面，请打开 https://labs.google/fx/zh/tools/flow");
+    throw new Error(
+      "当前页面不是 Flow 帧转视频页面，请打开 https://labs.google/fx/zh/tools/flow"
+    );
   }
 
   if (hasImage) {
@@ -377,12 +382,15 @@ async function processImageWithPrompt(
     console.log("未提供图片文件，跳过帧转视频模式确认与裁剪方向检测");
     document.dispatchEvent(
       new CustomEvent("flowOrientationDetected", {
-        detail: { orientation: null, context: "no-image", timestamp: Date.now() },
+        detail: {
+          orientation: null,
+          context: "no-image",
+          timestamp: Date.now(),
+        },
       })
     );
   }
   await humanDelay();
-
 
   if (window.shouldStopProcessing) {
     return;
@@ -658,7 +666,7 @@ async function waitForCropDialogOpen(timeout = 2000) {
     "剪裁并保存",
     "裁剪并保存",
     "crop and save",
-    "cropandsave"
+    "cropandsave",
   ];
   while (Date.now() - start < timeout) {
     const saveButtons = findElementsByText(
@@ -679,7 +687,7 @@ async function handleCropDialog(timeout = 15000) {
     "剪裁并保存",
     "裁剪并保存",
     "crop and save",
-    "cropandsave"
+    "cropandsave",
   ];
 
   while (Date.now() - start < timeout) {
@@ -709,11 +717,11 @@ async function handleCropDialog(timeout = 15000) {
     } catch (error) {
       console.warn("点击“剪裁并保存”按钮失败，尝试备用触发:", error);
       try {
-      await humanDelay();
-      saveButton.dispatchEvent(
-        new MouseEvent("click", { bubbles: true, cancelable: true })
-      );
-      await humanDelay();
+        await humanDelay();
+        saveButton.dispatchEvent(
+          new MouseEvent("click", { bubbles: true, cancelable: true })
+        );
+        await humanDelay();
       } catch (innerError) {
         console.error("备用触发“剪裁并保存”按钮仍失败:", innerError);
       }
@@ -830,12 +838,8 @@ async function locateOrientationCombobox(timeout = 3000) {
 }
 
 async function selectVerticalFromCombobox(combobox) {
-  const readState = () =>
-    normalizeText(combobox.textContent || combobox.getAttribute("aria-label") || "");
-
-  const orientationKeywords = ["纵向", "Portrait"].map(normalizeText);
-
-  if (orientationKeywords.some((keyword) => readState().includes(keyword))) {
+  // 检查是否已经是纵向模式
+  if (isCurrentOrientationVertical()) {
     return true;
   }
 
@@ -879,9 +883,10 @@ async function selectVerticalFromCombobox(combobox) {
     }
   }
 
+  // 等待切换完成
   const start = Date.now();
   while (Date.now() - start < 3000) {
-    if (orientationKeywords.some((keyword) => readState().includes(keyword))) {
+    if (isCurrentOrientationVertical()) {
       return true;
     }
     await delay(120);
@@ -942,15 +947,15 @@ async function waitForUploadComplete(context = {}, timeout = 180000) {
       return;
     }
 
-    const uploadingIndicators = Array.from(
-      document.querySelectorAll("i, svg")
-    )
+    const uploadingIndicators = Array.from(document.querySelectorAll("i, svg"))
       .filter(
         (icon) =>
           normalizeText(icon.textContent || "") === "progress_activity" &&
           isVisibleElement(icon)
       )
-      .map((icon) => icon.closest("[role='alert'], [aria-live], div, span") || icon)
+      .map(
+        (icon) => icon.closest("[role='alert'], [aria-live], div, span") || icon
+      )
       .filter(Boolean);
 
     if (uploadingIndicators.length > 0) {
@@ -971,7 +976,11 @@ async function waitForUploadComplete(context = {}, timeout = 180000) {
       return;
     }
 
-    if (uploadingVisibleOnce && uploadingIndicators.length === 0 && hasPreview) {
+    if (
+      uploadingVisibleOnce &&
+      uploadingIndicators.length === 0 &&
+      hasPreview
+    ) {
       console.log("上传提示已消失并检测到预览，判定上传完成");
       return;
     }
@@ -1043,9 +1052,7 @@ async function clickGenerateButton() {
     document.querySelectorAll("button, [role='button']")
   ).filter((btn) => isVisibleElement(btn) && !btn.disabled);
 
-  const iconMatchedButtons = Array.from(
-    document.querySelectorAll("i, svg")
-  )
+  const iconMatchedButtons = Array.from(document.querySelectorAll("i, svg"))
     .filter((icon) => normalize(icon.textContent || "") === "arrow_forward")
     .map((icon) => icon.closest("button, [role='button']"))
     .filter((btn) => btn && isVisibleElement(btn) && !btn.disabled);
@@ -1055,7 +1062,9 @@ async function clickGenerateButton() {
   const button =
     iconMatchedButtons[0] ||
     candidates.find((btn) => {
-      const iconText = normalize(btn.querySelector?.("i, svg")?.textContent || "");
+      const iconText = normalize(
+        btn.querySelector?.("i, svg")?.textContent || ""
+      );
       return iconText === "arrow_forward";
     }) ||
     null;
@@ -1067,8 +1076,7 @@ async function clickGenerateButton() {
   await humanDelay();
 
   const overlay = button.querySelector("[data-type='button-overlay']");
-  const primaryTarget =
-    overlay && isVisibleElement(overlay) ? overlay : button;
+  const primaryTarget = overlay && isVisibleElement(overlay) ? overlay : button;
 
   const triggerClick = (target) => {
     if (!target) {
@@ -1156,7 +1164,7 @@ function delay(ms = 0) {
 }
 
 async function humanDelay(multiplier = 1) {
-  const factor = (Number.isFinite(multiplier) && multiplier > 0) ? multiplier : 1;
+  const factor = Number.isFinite(multiplier) && multiplier > 0 ? multiplier : 1;
   await delay(HUMAN_ACTION_DELAY * factor);
 }
 
@@ -1255,9 +1263,10 @@ function locateFileInput(container) {
 
   for (const scope of scopes) {
     if (!scope) continue;
-    const inputs = Array.from(scope.querySelectorAll('input[type="file"]')).filter(
-      (input) =>
-        !input.disabled && !input.closest("#flow-floating-window")
+    const inputs = Array.from(
+      scope.querySelectorAll('input[type="file"]')
+    ).filter(
+      (input) => !input.disabled && !input.closest("#flow-floating-window")
     );
     if (!inputs.length) {
       continue;
@@ -1305,7 +1314,8 @@ function hasUploadedPreview(container) {
   }
 
   const videos = Array.from(scope.querySelectorAll("video")).filter(
-    (video) => !video.closest("#flow-floating-window") && isVisibleElement(video)
+    (video) =>
+      !video.closest("#flow-floating-window") && isVisibleElement(video)
   );
   if (videos.length > 0) {
     return true;
@@ -1424,7 +1434,8 @@ function locateFrameWorkspace() {
   const textarea = document.getElementById("PINHOLE_TEXT_AREA_ELEMENT_ID");
   if (textarea) {
     const candidate =
-      textarea.closest(".sc-2e289e88-0, .sc-2e289e88-1") || textarea.parentElement;
+      textarea.closest(".sc-2e289e88-0, .sc-2e289e88-1") ||
+      textarea.parentElement;
     if (candidate) {
       const frameContainer =
         candidate.querySelector(".sc-408537d4-0") ||
@@ -1483,7 +1494,9 @@ function locateFrameDropZone(workspace) {
     document.querySelector(".sc-aa137585-0")
   );
 
-  return candidates.find((element) => element && isVisibleElement(element)) || null;
+  return (
+    candidates.find((element) => element && isVisibleElement(element)) || null
+  );
 }
 
 function findFrameRemovalButtons(workspace) {
